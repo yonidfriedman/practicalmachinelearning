@@ -1,0 +1,78 @@
+---
+title: "Weight Lifting Classification"
+author: "Jonathan Friedman"
+date: "March 27, 2017"
+output: html_document
+---
+
+## Introduction
+
+While an increasing number of devices track how often people exercise - how many steps they take, for example - fewer attempts are made to determine how well people exercise. The dataset considered below tracks six individuals lifting weights in five manners - one way is correct and the remaining four are incorrect. Using sensor data, the aim of this analysis is to predict the method of weight lifting from all other variables
+
+First, load the necessary r packages and datasets.
+
+```{r, warning = FALSE, message = FALSE}
+library(caret)
+library(dplyr)
+
+training <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv")
+
+test <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv")
+
+dim(training)
+
+```
+
+Seeing how large the dataset is, and how many variables it contains, my first thought was to train multiple classification models and create a stacked model. I planned on using random forests with bootstrapped sampling, so didn't see a need for additional cross-validation. I didn't quite get there.
+
+I started with trying to train a random forest. However, the execution time was way too long. A closer look at the variables revealed that some were factor variables with hundreds of levels. A little time spent on google and I realized the random forest treated each level as a decision point and so it was as though the random forest was being trained on thousands of variables. 
+
+```{r, warning = FALSE, message = FALSE}
+str(training)
+```
+
+I could not find much information on the variables in this dataset but noticing that the factor variables appeared to be numeric, my best guess was to convert them to numeric and try again. I left out the first two variables, as they are not predictors, and the final variable, which is the variable being predicted. I then recombined variables 3 through 159 with the classe variable.
+
+```{r, warning = FALSE, message = FALSE}
+training2 <- data.frame(lapply(training[, 3:159], function(x) as.numeric(as.character(x))))
+training3 <- training$classe 
+training4 <- cbind(training2, training3) %>%
+    dplyr::rename(classe = training3)
+```
+
+Annoyingly, I tried again at this point to train the random forest model but encountered issues with NAs. I'm not quite sure what happened, but I think the conversion to numerics may have created some problems. Applying the train function with preProcess = "knnImpute" did not solve the problem, perhaps because there are too many NAs.
+
+So, I thought about eliminating those variables, but, being lazy, decided to see what would happen if I just made all NAs zeros, even though that should not be a great way to go. After doing this and trying again, I got a warning that some variables had near zero variance, so I added the preProcess = "nzv" argument. I also set ntree = 2 instead of 25, as execution was still taking too long. I was not expecting much.
+
+```{r, warning = FALSE, message = FALSE}
+training4[is.na(training4)] <- 0
+
+modelFit <- train(classe ~ ., method = "rf", preProcess = "nzv", data = training4, ntree = 2)
+
+modelFit
+```
+
+Sure enough, the model produced accuracy greater than 98%. I did not see any point in going further.
+
+I did, however, want to know more about the model that was performing so well. 
+
+```{r, warning = FALSE, message = FALSE}
+print(modelFit$finalModel)
+```
+
+The OOB estimate of error rate of 1.12% suggested this model would do quite well as a predictor. At this point, I processed my test data the same way and predicted using modelFit with 100% accuracy.
+
+```{r, warning = FALSE, message = FALSE}
+test2 <- data.frame(lapply(test[, 3:159], function(x) as.numeric(as.character(x))))
+
+test2[is.na(test2)] <- 0
+
+predict(modelFit, newdata = test2)
+```
+
+Finally, I wanted to take a closer look at the final model to see what the main split variables were and perhaps generate some plots. However, I could not find much information online from the course link, or from the source paper, on what these variables meant, so I did not go any further. Interestingly, the third split is raw_timestamp_part_1, which sounds like it could be a time variable, which would be very strange, but alas.
+
+```{r, warning = FALSE, message = FALSE}
+head(getTree(modelFit$finalModel, labelVar = T), 15)
+```
+
